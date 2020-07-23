@@ -1,3 +1,5 @@
+package com.vmware.edu
+
 import groovy.io.FileType
 import groovy.xml.XmlSlurper
 import java.nio.file.Files
@@ -8,7 +10,12 @@ class Convertor {
     final static OEBPS_DIR = 'work/OEBPS'
     final static TEXT_DIR = 'work/OEBPS/Text'
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
+        if (args.size() != 2) {
+            System.err.println "Usage: Convertor shipkin-zip-file epub-title"
+            System.exit(1)
+        }
+
         def zipFile = args[0]
         def title = args[1]
         println "Generating ePub for '$title' from '$zipFile'"
@@ -299,7 +306,7 @@ class Convertor {
 
     static String fixIframeAttributes(String line) {
         line.replaceAll('frameborder="0"', '')
-                .replaceAll('width="100%"', '')
+                .replaceAll('width="100%"', 'width="1024"') // Not right, but not much else we can do
                 .replaceAll('mozallowfullscreen="true"', '')
                 .replaceAll('webkitallowfullscreen="true"', '')
                 .replaceAll('allowfullscreen="true"', 'allowfullscreen="allowfullscreen"')

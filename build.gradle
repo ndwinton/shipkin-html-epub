@@ -1,5 +1,6 @@
 plugins {
     id 'groovy'
+    id 'application'
 }
 
 group 'com.vmware'
@@ -8,6 +9,10 @@ version '1.0-SNAPSHOT'
 repositories {
     mavenCentral()
     jcenter()
+}
+
+application {
+    mainClassName = 'com.vmware.edu.Convertor'
 }
 
 dependencies {
