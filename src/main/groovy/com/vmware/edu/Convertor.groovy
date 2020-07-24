@@ -11,14 +11,18 @@ class Convertor {
     final static TEXT_DIR = 'work/OEBPS/Text'
 
     static void main(String[] args) {
-        if (args.size() != 2) {
+        if (args.size() < 3) {
             System.err.println "Usage: Convertor shipkin-zip-file epub-title"
             System.exit(1)
         }
 
         def zipFile = args[0]
         def title = args[1]
-        println "Generating ePub for '$title' from '$zipFile'"
+        def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub')
+        args.toList().subList(2, args.size())
+        def codebases = args.size() > 2 ? args.toList().subList(2, args.size()) : []
+
+        println "Generating ePub '$epubFile' for '$title' from '$zipFile'"
 
         unzipSource(zipFile)
         def fileList = gatherFiles()
@@ -31,9 +35,10 @@ class Convertor {
         def uuid =  UUID.randomUUID().toString()
 
         generateOpfFile(title, uuid, idMappings, indexLinks, remoteLinks)
-        makeToc(title, uuid)
+        makeTocAndOtherSupportFiles(title, uuid)
         makeMetaInf()
         makeMimeType()
+        createEpubFile(epubFile)
     }
 
     static def unzipSource(String zipFile) {
@@ -43,6 +48,14 @@ class Convertor {
             mkdir(dir: TEXT_DIR)
             unzip(src: zipFile, dest: TEXT_DIR)
         }
+    }
+
+    static createEpubFile(String epubFilename) {
+        // Unfortunately, we can't control the file ordering with the And zip
+        // task, and the mimetype *has* to be first.
+        new File(epubFilename).delete()
+        def process = ["zip", "-r", "-X", epubFilename, "mimetype", "OEBPS", "META-INF"].execute(null, new File(WORK_DIR))
+        println process.text
     }
 
     static List<File> gatherFiles() {
@@ -118,9 +131,10 @@ class Convertor {
   <manifest>
    <item href="nav.xhtml" id="nav" media-type="application/xhtml+xml" properties="nav"/>
    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+   <item id="unsupported" href="unsupported.xhtml" media-type="application/xhtml+xml"/>
 """
             idMapping.each { id, name ->
-                def contentType = Files.probeContentType(new File(OEBPS_DIR + '/' + name).toPath())
+                def contentType = determineContentType(name)
                 def properties = ''
                 if (contentType == 'text/html') {
                     contentType = 'application/xhtml+xml'
@@ -129,18 +143,10 @@ class Convertor {
                 if (contentType == 'text/css') {
                     properties = generatePropertiesForContent(name)
                 }
-                if (contentType == null) {
-                    switch (name) {
-                        case ~/\.css$/:
-                            contentType = 'text/css'
-                            break
-                        case ~/\.js$/:
-                            contentType = 'application/javascript'
-                            break
-                        default:
-                            contentType = 'text/plain'
-                    }
+                if (contentType == 'application/zip') {
+                    properties = 'fallback="unsupported"'
                 }
+
                 opf.println """   <item id="$id" href="$name" $properties media-type="$contentType"/>"""
             }
             remoteLinks.eachWithIndex { remote, index ->
@@ -153,14 +159,32 @@ class Convertor {
                 opf.println """   <itemref idref="$link" linear="yes"/>"""
             }
             idMapping.each { id, name ->
-                if (name.endsWith('.html') && !indexLinks.contains(id)) {
+                if (name =~ /(\.html|\.zip)/ && !indexLinks.contains(id)) {
                     opf.println """   <itemref idref="$id" linear="no"/>"""
                 }
             }
+
             opf.print """  </spine>
 </package>
 """
         }
+    }
+
+    static String determineContentType(name) {
+        def contentType = Files.probeContentType(new File(OEBPS_DIR + '/' + name).toPath())
+        if (contentType == null) {
+            switch (name) {
+                case ~/\.css$/:
+                    contentType = 'text/css'
+                    break
+                case ~/\.js$/:
+                    contentType = 'application/javascript'
+                    break
+                default:
+                    contentType = 'text/plain'
+            }
+        }
+        contentType
     }
 
     static String generatePropertiesForContent(String fileName) {
@@ -193,7 +217,7 @@ class Convertor {
         mediaType
     }
 
-    static void makeToc(String title, String uuid) {
+    static void makeTocAndOtherSupportFiles(String title, String uuid) {
         new File(OEBPS_DIR, 'toc.ncx') << """<?xml version="1.0" encoding="utf-8"?>
 <ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">
   <head>
@@ -232,6 +256,19 @@ class Convertor {
     </body>
 </html>
 """
+
+        new File(OEBPS_DIR, "unsupported.xhtml") << """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Unsupported File Type</title>
+    </head>
+    <body>
+        <h1>Unsupported File Type</h1>
+        <p>Sorry, this file type isn't supported by your ePub reader.</p>
+    </body>
+</html>
+"""
     }
 
     static void makeMetaInf() {
@@ -250,11 +287,11 @@ class Convertor {
 
     static List<String> extractRemoteResourceLinks(List<File> fileList) {
         def remoteLinks = []
-        fileList.grep { it.name.endsWith('.css') }.each { file ->
+        fileList.grep { it.name.endsWith('.css') || it.name.endsWith('.html') }.each { file ->
             def lines = file.readLines()
-            remoteLinks << lines.grep { it.matches(/.*url\(\s*http.*/) }.collect { it.replaceAll(/.*url\(\s*([^\)\s]+).*/, '$1') }
+            remoteLinks << lines.grep { it.matches(/.*src:.*url\(\s*http.*/) }.collect { it.replaceAll(/.*url\(\s*([^\)\s]+).*/, '$1') }
         }
-        remoteLinks.flatten()
+        remoteLinks.flatten().toUnique()
     }
 
     static void fixHtmlOrCssContent(List<File> fileList) {
@@ -263,17 +300,15 @@ class Convertor {
             def fixed = lines.collect { line ->
                 expandImportLine(line)
             }.flatten().collect { line ->
-                fixSvgElements(line)
-            }.collect { line ->
-                fixFeedbackButton(line)
-            }.collect { line ->
-                fixHiddenLabelTargets(line)
-            }.collect { line ->
-                fixIframeAttributes(line)
-            }.collect { line ->
-                fixTopLevelIndexRef(line)
-            }.collect { line ->
-                fixCssErrors(line)
+                (Convertor::fixSvgElements >>
+                        Convertor::fixFeedbackButton >>
+                        Convertor::fixHiddenLabelTargets >>
+                        Convertor::fixIframeAttributes >>
+                        Convertor::fixTopLevelIndexRef >>
+                        Convertor::fixCssErrors >>
+                        Convertor::makeFooterInvisible >>
+                        Convertor::makeSidebarInvisible >>
+                        Convertor::fixEmbeddedPresentation)(line)
             }
             file.withWriter('UTF-8') { writer -> fixed.each { writer.writeLine(it) } }
         }
@@ -306,18 +341,34 @@ class Convertor {
 
     static String fixIframeAttributes(String line) {
         line.replaceAll('frameborder="0"', '')
-                .replaceAll('width="100%"', 'width="1024"') // Not right, but not much else we can do
+                .replaceAll('width="100%"', 'width="800"') // Not right, but not much else we can do
                 .replaceAll('mozallowfullscreen="true"', '')
                 .replaceAll('webkitallowfullscreen="true"', '')
                 .replaceAll('allowfullscreen="true"', 'allowfullscreen="allowfullscreen"')
     }
 
     static String fixTopLevelIndexRef(String line) {
-        line.replaceAll($/<a href="((\.\./?)+)">/$, '<a href="$1/index.html">')
+        line.replaceAll($/<a ([^>]*)href="((\.\./?)+)">/$, '<a $1href="$2/index.html">')
     }
 
     static String fixCssErrors(String line) {
         // This is really a Shipkin bug - fixed on master
         line.replaceAll(/;;/, ';')
+    }
+
+    static String makeFooterInvisible(String line) {
+        line.replaceAll(/footer\s*\{/, 'footer { display: none;')
+    }
+
+    static String makeSidebarInvisible(String line) {
+        line.replaceAll(/.sidebar-container\s+\{/, '.sidebar-container { display: none;')
+    }
+
+    static String fixEmbeddedPresentation(String line) {
+        // Embedded Google slides need to be PDF'ed
+        line.replaceAll($/iframe src="https://docs.google.com/presentation/d/([^/]+)/embed"/$, 'iframe src="$1.pdf"')
+        // Embedded PDFs can't appear as the target for the iframe and with a separate href!
+            .replaceAll(/<p>This browser does not support PDFs.*/, '<p>This viewer does not support PDFs. Sigh.</p>')
+            .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
     }
 }
