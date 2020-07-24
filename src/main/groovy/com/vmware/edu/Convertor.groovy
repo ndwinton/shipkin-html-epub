@@ -1,9 +1,18 @@
 package com.vmware.edu
 
 import groovy.io.FileType
+import groovy.util.logging.Slf4j
 import groovy.xml.XmlSlurper
+
+import org.springframework.boot.CommandLineRunner
+import org.springframework.boot.SpringApplication
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.context.annotation.Bean
+
 import java.nio.file.Files
 
+@Slf4j
+@SpringBootApplication
 class Convertor {
     final static WORK_DIR = 'work'
     final static META_INF_DIR = 'work/META-INF'
@@ -11,8 +20,17 @@ class Convertor {
     final static TEXT_DIR = 'work/OEBPS/Text'
 
     static void main(String[] args) {
-        if (args.size() != 1) {
-            System.err.println "Usage: Convertor shipkin-zip-file epub-title"
+        SpringApplication.run(Convertor, args)
+    }
+
+    @Bean
+    CommandLineRunner runner() {
+        return { argv -> execute(argv) }
+    }
+
+     static def execute(String[] args) {
+        if (args.size() != 2) {
+            log.error("Usage: ${Convertor.name} shipkin-zip-file epub-title")
             System.exit(1)
         }
 
@@ -20,7 +38,7 @@ class Convertor {
         def title = args[1]
         def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub').replaceFirst(/^.*\//, '')
 
-        println "Generating ePub '$epubFile' for '$title' from '$zipFile'"
+        log.info "Generating ePub '$epubFile' for '$title' from '$zipFile'"
 
         unzipSource(zipFile)
         def fileList = gatherFiles()
