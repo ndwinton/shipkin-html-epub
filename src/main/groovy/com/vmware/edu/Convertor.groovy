@@ -11,16 +11,14 @@ class Convertor {
     final static TEXT_DIR = 'work/OEBPS/Text'
 
     static void main(String[] args) {
-        if (args.size() < 3) {
+        if (args.size() != 1) {
             System.err.println "Usage: Convertor shipkin-zip-file epub-title"
             System.exit(1)
         }
 
         def zipFile = args[0]
         def title = args[1]
-        def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub')
-        args.toList().subList(2, args.size())
-        def codebases = args.size() > 2 ? args.toList().subList(2, args.size()) : []
+        def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub').replaceFirst(/^.*\//, '')
 
         println "Generating ePub '$epubFile' for '$title' from '$zipFile'"
 
