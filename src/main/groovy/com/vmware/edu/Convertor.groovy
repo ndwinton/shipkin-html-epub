@@ -363,10 +363,8 @@ class Convertor {
     }
 
     static String fixEmbeddedPresentation(String line) {
-        // Embedded Google slides need to be PDF'ed
-        line.replaceAll($/iframe src="https://docs.google.com/presentation/d/([^/]+)/embed"/$, 'iframe src="$1.pdf"')
         // Embedded PDFs can't appear as the target for the iframe and with a separate href!
-            .replaceAll(/<p>This browser does not support PDFs.*/, '<p>This viewer does not support PDFs. Sigh.</p>')
+        line.replaceAll(/<p>This browser does not support PDFs.*/, '<p>This viewer does not support PDFs. Sigh.</p>')
             .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
     }
 }
