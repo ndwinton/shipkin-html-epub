@@ -19,6 +19,7 @@ dependencies {
     implementation "org.codehaus.groovy:groovy:$groovyVersion"
     implementation "org.codehaus.groovy:groovy-ant:$groovyVersion"
     implementation "org.codehaus.groovy:groovy-xml:$groovyVersion"
+    implementation "org.codehaus.groovy:groovy-dateutil:$groovyVersion"
     testImplementation('org.springframework.boot:spring-boot-starter-test') {
         exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
     }
