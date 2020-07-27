@@ -28,7 +28,7 @@ class Convertor {
         return { argv -> execute(argv) }
     }
 
-     static def execute(String[] args) {
+    static def execute(String[] args) {
         if (args.size() != 2) {
             log.error("Usage: ${Convertor.name} shipkin-zip-file epub-title")
             System.exit(1)
@@ -55,9 +55,12 @@ class Convertor {
         makeMetaInf()
         makeMimeType()
         createEpubFile(epubFile)
+
+        log.info("Generated '$epubFile'")
     }
 
     static def unzipSource(String zipFile) {
+        log.info("Extracting course contents into '$WORK_DIR'")
         def ant = new AntBuilder()
         ant.with {
             delete(dir: WORK_DIR)
@@ -67,11 +70,12 @@ class Convertor {
     }
 
     static createEpubFile(String epubFilename) {
+        log.info("Creating ePub archive")
         // Unfortunately, we can't control the file ordering with the Ant zip
         // task, and the mimetype *has* to be the first entry in the zip file
         // according to the ePub spec.
         new File(epubFilename).delete()
-        def process = ["zip", "-r", "-X", epubFilename, "mimetype", "OEBPS", "META-INF"].execute(null, new File(WORK_DIR))
+        def process = ["zip", "-r", "-X", "-q", epubFilename, "mimetype", "OEBPS", "META-INF"].execute(null, new File(WORK_DIR))
         println process.text
     }
 
@@ -82,12 +86,14 @@ class Convertor {
     }
 
     static void tidyHtmlFiles(List<File> fileList) {
+        log.info("Converting files to XHTML format")
         fileList.grep { it.name.endsWith('.html') }. each {
             tidyFile(it)
         }
     }
 
     static void tidyFile(File file) {
+        log.debug("Tidying $file")
         def result = ['tidy',
                       '-asxhtml',
                       '-quiet',
@@ -104,6 +110,7 @@ class Convertor {
     }
 
     static List<String> readIndexLinks() {
+        log.info("Reading top-level index links")
         def slurper = new XmlSlurper()
         slurper.setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
         def xhtml = slurper.parse(new File(TEXT_DIR + '/index.html'))
@@ -130,6 +137,7 @@ class Convertor {
     }
 
     static void generateOpfFile(String title, String uuid, Map idMapping, List indexLinks, List remoteLinks) {
+        log.info("Generating OPF file")
         new File(OEBPS_DIR, 'content.opf').withPrintWriter('UTF-8') { opf ->
             opf.print """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" xmlns:opf="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
@@ -166,7 +174,7 @@ class Convertor {
                 opf.println """   <item id="$id" href="$name" $properties media-type="$contentType"/>"""
             }
             remoteLinks.eachWithIndex { remote, index ->
-                opf.println """   <item id="remote.url.$index" href="$remote" media-type="${mediaTypeFromUrl(remote)}"/>"""
+                opf.println """   <item id="remote.url.$index" href="$remote" media-type="${contentTypeFromUrl(remote)}"/>"""
             }
             opf.print """  </manifest>
   <spine toc="ncx">
@@ -200,6 +208,7 @@ class Convertor {
                     contentType = 'text/plain'
             }
         }
+        log.debug("Content type for '$name' is '$contentType'")
         contentType
     }
 
@@ -223,17 +232,19 @@ class Convertor {
         ''
     }
 
-    static String mediaTypeFromUrl(String url) {
-        def mediaType = 'text/plain'
+    static String contentTypeFromUrl(String url) {
+        def contentType = 'text/plain'
         def connection = new URL(url).openConnection()
         connection.requestMethod = 'HEAD'
         if (connection.responseCode == 200) {
-            mediaType = connection.contentType
+            contentType = connection.contentType
         }
-        mediaType
+        log.debug("Content type for '$url' is '$contentType'")
+        contentType
     }
 
     static void makeTocAndOtherSupportFiles(String title, String uuid) {
+        log.info("Generating TOC")
         new File(OEBPS_DIR, 'toc.ncx') << """<?xml version="1.0" encoding="utf-8"?>
 <ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">
   <head>
@@ -288,6 +299,7 @@ class Convertor {
     }
 
     static void makeMetaInf() {
+        log.info("Generating META-INF")
         new File(META_INF_DIR).mkdirs()
         new File(META_INF_DIR, 'container.xml') << '''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -298,6 +310,7 @@ class Convertor {
     }
 
     static def makeMimeType() {
+        log.info("Generating mimetype")
         new File(WORK_DIR, 'mimetype') << 'application/epub+zip'
     }
 
@@ -311,7 +324,9 @@ class Convertor {
     }
 
     static void fixHtmlOrCssContent(List<File> fileList) {
+        log.info("Fixing HTML and CSS content")
         fileList.grep { it.name.endsWith('.html') || it.name.endsWith('.css') }.each { file ->
+            log.debug("Fixing $file")
             def lines = file.readLines()
             def fixed = lines.collect { line ->
                 expandImportLine(line)
