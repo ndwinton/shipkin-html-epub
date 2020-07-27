@@ -42,9 +42,10 @@ class Convertor {
 
         unzipSource(zipFile)
         def fileList = gatherFiles()
+        fileList = convertAllPdfFilesToSvg(fileList)
+
         tidyHtmlFiles(fileList)
         fixHtmlOrCssContent(fileList)
-        // Fix non-relative URLS
         def idMappings = generateIdMappings(fileList)
         def remoteLinks = extractRemoteResourceLinks(fileList)
         def indexLinks = readIndexLinks()
@@ -346,7 +347,9 @@ class Convertor {
     }
 
     static String fixSvgElements(String line) {
-        line.replaceAll(/<svg/, '<svg xmlns="http://www.w3.org/2000/svg" ')
+        // Negative lookahead assertion in next line ensures we only add the namespace
+        // if it is not already there
+        line.replaceAll(/<svg (?!.*xmlns=)/, '<svg xmlns="http://www.w3.org/2000/svg" ')
                 .replaceAll(/<svg(.*?)viewbox/, '<svg$1viewBox')
     }
 
@@ -372,7 +375,7 @@ class Convertor {
 
     static String fixIframeAttributes(String line) {
         line.replaceAll('frameborder="0"', '')
-                .replaceAll('width="100%"', 'width="800"') // Not right, but not much else we can do
+                .replaceAll(/width="100%"\s+height="569"/, 'style="width: 100%;" height="600"') // Not ideal, but seems to work
                 .replaceAll('mozallowfullscreen="true"', '')
                 .replaceAll('webkitallowfullscreen="true"', '')
                 .replaceAll('allowfullscreen="true"', 'allowfullscreen="allowfullscreen"')
@@ -396,8 +399,60 @@ class Convertor {
     }
 
     static String fixEmbeddedPresentation(String line) {
-        // Embedded PDFs can't appear as the target for the iframe and with a separate href!
-        line.replaceAll(/<p>This browser does not support PDFs.*/, '<p>This viewer does not support PDFs. Sigh.</p>')
+        line.replaceFirst(/<object data="([^"]+).pdf" type="application\/pdf"(.*)>/, "<iframe src=\"\$1-main.html\" \$2>")
+            //Abitrarily removing or replacing <embed> and <object> tags isn't great, but probably OK in the
+            // limited context of Shipkin-generated HTML
+            .replaceFirst(/<\/?embed[^>]*>/, '')
+            .replaceFirst(/<\/object>/, '</iframe>')
+            .replaceAll(/<p>This browser does not support PDFs.*/, '')
             .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
+    }
+
+    static List<File> convertAllPdfFilesToSvg(List<File> fileList) {
+        fileList.collect { File file ->
+            if (file.path.endsWith('.pdf')) {
+                convertPdfToSvg(file.path)
+            } else {
+                file
+            }
+        }.flatten() as List<File>
+    }
+
+    static List<File> convertPdfToSvg(String filename) {
+        log.info("Converting '$filename' to SVG format")
+
+        def base = filename.replaceFirst(/\.pdf$/, '')
+        def process = ["pdf2svg", filename, "${base}-%03d.svg", "all"].execute()
+        if (process.text) {
+            log.info(process.text)
+        }
+        def mainFile = new File("${base}-main.html")
+        def generatedFiles = [mainFile]
+        mainFile.withPrintWriter('UTF-8') { out ->
+            out.print """<html>
+ <head>
+  <title>Converted PDF Presentation</title>
+ </head>
+ <body>
+"""
+            int index = 1
+            def possibleSvgFile = new File(possibleSvgFileName(base, index))
+            while (possibleSvgFile.exists()) {
+                out.println("  <div class=\"svg-slide\"><img src=\"${possibleSvgFile.name}\" width=\"100%\"/><hr/></div>")
+                generatedFiles << possibleSvgFile
+                index++
+                possibleSvgFile = new File(possibleSvgFileName(base, index))
+            }
+            out.println """ </body>
+</html>
+"""
+            log.debug("Deleting '$filename'")
+            new File(filename).delete()
+        }
+        generatedFiles
+    }
+
+    private static String possibleSvgFileName(String base, int index) {
+        sprintf("%s-%03d.svg", base, index)
     }
 }

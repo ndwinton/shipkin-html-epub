@@ -1,6 +1,11 @@
 This is a "spike" on a Shipkin-HTML-to-ePub convertor.
 The code is of dubious quality and the output is not perfect.
 
+> **NOTE:** You will need [HTML Tidy](https://www.html-tidy.org/) and
+> [pdf2svg](http://www.cityinthesky.co.uk/opensource/pdf2svg/)
+> installed in order to run the converter. Both tools can be
+> installed on a Mac using `brew install`.
+>
 To generate an ePub, first create a zip archive of the course
 content by running:
 
@@ -19,7 +24,7 @@ Build the convertor tool here (using the normal
 ```bash
 java -jar build/libs/shipkin-html-epub-0.1.jar <course-zip-file> <course-title>
 ```
-
+ 
 The first parameter is the course zip file name and the second
 is the course title.
 So, if you have generated the archive for the Core Spring
