@@ -67,8 +67,9 @@ class Convertor {
     }
 
     static createEpubFile(String epubFilename) {
-        // Unfortunately, we can't control the file ordering with the And zip
-        // task, and the mimetype *has* to be first.
+        // Unfortunately, we can't control the file ordering with the Ant zip
+        // task, and the mimetype *has* to be the first entry in the zip file
+        // according to the ePub spec.
         new File(epubFilename).delete()
         def process = ["zip", "-r", "-X", epubFilename, "mimetype", "OEBPS", "META-INF"].execute(null, new File(WORK_DIR))
         println process.text
@@ -95,7 +96,6 @@ class Convertor {
                       '--wrap', '0',
                       '-utf8',
                       '--show-warnings', 'no',
-                      '--add-xml-decl', 'yes',
                       file.path].execute()
         def errText = result.err.text
         if (errText != '') {
