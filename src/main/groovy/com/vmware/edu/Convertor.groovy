@@ -76,8 +76,7 @@ class Convertor {
         // task, and the mimetype *has* to be the first entry in the zip file
         // according to the ePub spec.
         new File(epubFilename).delete()
-        def process = ["zip", "-r", "-X", "-q", epubFilename, "mimetype", "OEBPS", "META-INF"].execute(null, new File(WORK_DIR))
-        println process.text
+        runCommand(["zip", "-r", "-X", "-q", epubFilename, "mimetype", "OEBPS", "META-INF"], new File(WORK_DIR))
     }
 
     static List<File> gatherFiles() {
@@ -95,7 +94,7 @@ class Convertor {
 
     static void tidyFile(File file) {
         log.debug("Tidying $file")
-        def result = ['tidy',
+        runCommand(['tidy',
                       '-asxhtml',
                       '-quiet',
                       '-modify',
@@ -103,11 +102,7 @@ class Convertor {
                       '--wrap', '0',
                       '-utf8',
                       '--show-warnings', 'no',
-                      file.path].execute()
-        def errText = result.err.text
-        if (errText != '') {
-            System.err.println "$file.path\n$errText"
-        }
+                      file.path])
     }
 
     static List<String> readIndexLinks() {
@@ -421,11 +416,23 @@ class Convertor {
     static List<File> convertPdfToSvg(String filename) {
         log.info("Converting '$filename' to SVG format")
 
+        log.debug("Reducing PDF resolution")
+        def tempPdfFile = filename + '-X.pdf'
+        runCommand([
+                "gs",
+                "-sDEVICE=pdfwrite",
+                "-dCompatibilityLevel=1.4",
+                "-dPDFSETTINGS=/screen", // replacing /screen with /ebook increases image quality at the cost of size
+                "-dNOPAUSE",
+                "-dQUIET",
+                "-dBATCH",
+                "-sOutputFile=${tempPdfFile}",
+                filename
+        ])
+
         def base = filename.replaceFirst(/\.pdf$/, '')
-        def process = ["pdf2svg", filename, "${base}-%03d.svg", "all"].execute()
-        if (process.text) {
-            log.info(process.text)
-        }
+        runCommand(["pdf2svg", tempPdfFile, "${base}-%03d.svg", "all"])
+
         def mainFile = new File("${base}-main.html")
         def generatedFiles = [mainFile]
         mainFile.withPrintWriter('UTF-8') { out ->
@@ -438,7 +445,7 @@ class Convertor {
             int index = 1
             def possibleSvgFile = new File(possibleSvgFileName(base, index))
             while (possibleSvgFile.exists()) {
-                out.println("  <div class=\"svg-slide\"><img src=\"${possibleSvgFile.name}\" width=\"100%\"/><hr/></div>")
+                out.println("  <div class=\"svg-slide\"><img src=\"${possibleSvgFile.name}\" style=\"width: 100%;\"/><hr/></div>")
                 generatedFiles << possibleSvgFile
                 index++
                 possibleSvgFile = new File(possibleSvgFileName(base, index))
@@ -448,11 +455,30 @@ class Convertor {
 """
             log.debug("Deleting '$filename'")
             new File(filename).delete()
+            new File(tempPdfFile).delete()
         }
         generatedFiles
     }
 
     private static String possibleSvgFileName(String base, int index) {
         sprintf("%s-%03d.svg", base, index)
+    }
+
+    static runCommand(List<String> args, File workingDir = null) {
+        def process = args.execute(null as List, workingDir)
+
+        // See https://stackoverflow.com/questions/10688688/an-error-equivalent-for-process-text
+        def (output, error) = new StringWriter().with { o -> // For the output
+            new StringWriter().with { e ->                     // For the error stream
+                process.waitForProcessOutput( o, e )
+                [ o, e ]*.toString()                             // Return them both
+            }
+        }
+        if (output) {
+            log.info(output)
+        }
+        if (error) {
+            log.error(error)
+        }
     }
 }

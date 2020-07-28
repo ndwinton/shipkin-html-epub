@@ -1,11 +1,12 @@
 This is a "spike" on a Shipkin-HTML-to-ePub convertor.
 The code is of dubious quality and the output is not perfect.
 
-> **NOTE:** You will need [HTML Tidy](https://www.html-tidy.org/) and
+> **NOTE:** You will need [HTML Tidy](https://www.html-tidy.org/),
 > [pdf2svg](http://www.cityinthesky.co.uk/opensource/pdf2svg/)
-> installed in order to run the converter. Both tools can be
+> and [ghostscript](https://www.gnu.org/software/ghostscript/)
+> installed in order to run the converter. These tools can be
 > installed on a Mac using `brew install`.
->
+
 To generate an ePub, first create a zip archive of the course
 content by running:
 
