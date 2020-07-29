@@ -4,8 +4,9 @@ The code is of dubious quality and the output is not perfect.
 > **NOTE:** You will need [HTML Tidy](https://www.html-tidy.org/),
 > [pdf2svg](http://www.cityinthesky.co.uk/opensource/pdf2svg/)
 > and [ghostscript](https://www.gnu.org/software/ghostscript/)
-> installed in order to run the converter. These tools can be
-> installed on a Mac using `brew install`.
+> installed and on your PATH in order to run the converter.
+> These tools can be installed on a Mac using `brew install`.
+> You will also need the `zip` command-line tool available.
 
 To generate an ePub, first create a zip archive of the course
 content by running:
@@ -20,7 +21,7 @@ This generates the zip file under the course `build/archive`
 directory.
 
 Build the convertor tool here (using the normal
-`gradle build`) and then run the tool as follows:
+`./gradlew build`) and then run the tool as follows:
 
 ```bash
 java -jar build/libs/shipkin-html-epub-0.1.jar <course-zip-file> <course-title>
@@ -35,7 +36,7 @@ course and copied it to this directory, that would be:
 java -jar build/libs/shipkin-html-epub-0.1.jar core-spring-course-1.10.0.zip 'Core Spring'
 ```
 
-If all goes well this will create a `work` directory (deleting
+If all goes well this will create a `build/epub` directory (deleting
 any existing contents if the directory already exists).
 Within it will be an ePub file with the same name as the zip
 file and an `.epub` extension.

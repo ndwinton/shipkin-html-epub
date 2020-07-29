@@ -14,10 +14,10 @@ import java.nio.file.Files
 @Slf4j
 @SpringBootApplication
 class Convertor {
-    final static WORK_DIR = 'work'
-    final static META_INF_DIR = 'work/META-INF'
-    final static OEBPS_DIR = 'work/OEBPS'
-    final static TEXT_DIR = 'work/OEBPS/Text'
+    final static WORK_DIR = 'build/epub'
+    final static META_INF_DIR = WORK_DIR + '/META-INF'
+    final static OEBPS_DIR = WORK_DIR + '/OEBPS'
+    final static TEXT_DIR = OEBPS_DIR + '/Text'
 
     static void main(String[] args) {
         SpringApplication.run(Convertor, args)
@@ -38,7 +38,7 @@ class Convertor {
         def title = args[1]
         def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub').replaceFirst(/^.*\//, '')
 
-        log.info "Generating ePub '$epubFile' for '$title' from '$zipFile'"
+        log.info "Generating ePub '$WORK_DIR/$epubFile' for '$title' from '$zipFile'"
 
         unzipSource(zipFile)
         def fileList = gatherFiles()
@@ -192,12 +192,12 @@ class Convertor {
 
     static String determineContentType(name) {
         def contentType = Files.probeContentType(new File(OEBPS_DIR + '/' + name).toPath())
-        if (contentType == null) {
+        if (contentType == null || contentType == 'text/plain') {
             switch (name) {
-                case ~/\.css$/:
+                case ~/.*\.css$/:
                     contentType = 'text/css'
                     break
-                case ~/\.js$/:
+                case ~/.*\.js$/:
                     contentType = 'application/javascript'
                     break
                 default:
