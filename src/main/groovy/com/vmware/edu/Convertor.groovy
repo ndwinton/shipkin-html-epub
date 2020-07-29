@@ -97,6 +97,12 @@ class Convertor {
 
     // Convert an individual PDF file to SVG+HTML and return a list of
     // resulting files.
+    //
+    // We use pdf2svg to generate a series of SVG files, one per page, from
+    // the input PDF file. The files are named in the same form as the PDF
+    // file but with '.pdf' removed and '-NNN.svg' appended, where NNN is a
+    // sequential integer. A 'wrapper' HTML file is also created that loads
+    // all of the generated SVG files as images.
     static List<File> convertPdfToSvg(String filename) {
         log.info("Converting '$filename' to SVG format")
 
@@ -114,8 +120,28 @@ class Convertor {
         generatedFiles
     }
 
-    // Create a 'wrapper' HTML file that loads all of the generated
-    // SVG files as images.
+    // This is a convenience method to run a command, given as a
+    // list of arguments, and log the output/error results (if any).
+    static runCommand(List<String> args, File workingDir = null) {
+        def process = args.execute(null as List, workingDir)
+
+        // See https://stackoverflow.com/questions/10688688/an-error-equivalent-for-process-text
+        def (output, error) = new StringWriter().with { o -> // For the output
+            new StringWriter().with { e ->                     // For the error stream
+                process.waitForProcessOutput( o, e )
+                [ o, e ]*.toString()                             // Return them both
+            }
+        }
+        if (output) {
+            log.info(output)
+        }
+        if (error) {
+            log.error(error)
+        }
+    }
+
+    // Create the 'wrapper' HTML file (with a suffix of '-main.html').
+    //
     // Coming into this method we don't know exactly how many SVG files
     // were generated, so it returns a list of all the newly generated
     // files, including the wrapper file.
@@ -150,6 +176,9 @@ class Convertor {
         }
         svgFiles
     }
+    private static String possibleSvgFileName(String base, int index) {
+        sprintf("%s-%03d.svg", base, index)
+    }
 
     // The embedded images in PDF files cause the resulting SVG files to be very
     // large. We use Ghostscript to reduce the resolution (and, of course, image
@@ -170,28 +199,6 @@ class Convertor {
                 pdfFileName
         ])
         reducedPdfFileName
-    }
-
-    static runCommand(List<String> args, File workingDir = null) {
-        def process = args.execute(null as List, workingDir)
-
-        // See https://stackoverflow.com/questions/10688688/an-error-equivalent-for-process-text
-        def (output, error) = new StringWriter().with { o -> // For the output
-            new StringWriter().with { e ->                     // For the error stream
-                process.waitForProcessOutput( o, e )
-                [ o, e ]*.toString()                             // Return them both
-            }
-        }
-        if (output) {
-            log.info(output)
-        }
-        if (error) {
-            log.error(error)
-        }
-    }
-
-    private static String possibleSvgFileName(String base, int index) {
-        sprintf("%s-%03d.svg", base, index)
     }
 
     // An ePub file is "just" a zip archive with a specific layout.
