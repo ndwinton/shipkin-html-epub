@@ -60,6 +60,9 @@ class Convertor {
         log.info("Generated '$epubFile'")
     }
 
+    // Extract the course material into a working directory structure.
+    // Note that any existing contents of the working directory will
+    // be deleted without warning.
     static def unzipSource(String zipFile) {
         log.info("Extracting course contents into '$WORK_DIR'")
         def ant = new AntBuilder()
@@ -70,21 +73,142 @@ class Convertor {
         }
     }
 
-    static createEpubFile(String epubFilename) {
-        log.info("Creating ePub archive")
-        // Unfortunately, we can't control the file ordering with the Ant zip
-        // task, and the mimetype *has* to be the first entry in the zip file
-        // according to the ePub spec.
-        new File(epubFilename).delete()
-        runCommand(["zip", "-r", "-X", "-q", epubFilename, "mimetype", "OEBPS", "META-INF"], new File(WORK_DIR))
-    }
-
+    // Build a list of all files in the unzipped course material
     static List<File> gatherFiles() {
         def fileList = []
         new File(TEXT_DIR).traverse(type: FileType.FILES) { fileList << it }
         fileList
     }
 
+    // Find all the PDF files within the file list and replace
+    // them with a version converted to a main HTML page and a number
+    // of SVG files, each rendering one PDF page.
+    //
+    // A new file list representing the changed contents is returned.
+    static List<File> convertAllPdfFilesToSvg(List<File> fileList) {
+        fileList.collect { File file ->
+            if (file.path.endsWith('.pdf')) {
+                convertPdfToSvg(file.path)
+            } else {
+                file
+            }
+        }.flatten() as List<File>
+    }
+
+    // Convert an individual PDF file to SVG+HTML and return a list of
+    // resulting files.
+    static List<File> convertPdfToSvg(String filename) {
+        log.info("Converting '$filename' to SVG format")
+
+        String reducedPdfFileName = reducePdfImageResolution(filename)
+
+        def base = filename.replaceFirst(/\.pdf$/, '')
+        runCommand(["pdf2svg", reducedPdfFileName, "${base}-%03d.svg", "all"])
+
+        def generatedFiles = generateSvgWrapperHtml(base)
+
+        log.debug("Deleting '$filename'")
+        new File(filename).delete()
+        new File(reducedPdfFileName).delete()
+
+        generatedFiles
+    }
+
+    // Create a 'wrapper' HTML file that loads all of the generated
+    // SVG files as images.
+    // Coming into this method we don't know exactly how many SVG files
+    // were generated, so it returns a list of all the newly generated
+    // files, including the wrapper file.
+    private static List<File> generateSvgWrapperHtml(base) {
+        def mainFile = new File("${base}-main.html")
+        def svgFileList = [] as List<File>
+
+        mainFile.withPrintWriter('UTF-8') { out ->
+            out.print """<html>
+ <head>
+  <title>Converted PDF Presentation</title>
+ </head>
+ <body>
+"""
+            svgFileList = outputSvgImgReferences(base, out)
+            out.println """ </body>
+</html>
+"""
+        }
+        [mainFile] + svgFileList
+    }
+
+    private static List<File> outputSvgImgReferences(String base, PrintWriter out) {
+        def svgFiles = [] as List<File>
+        int index = 1
+        def possibleSvgFile = new File(possibleSvgFileName(base, index))
+        while (possibleSvgFile.exists()) {
+            out.println("  <div class=\"svg-slide\"><img src=\"${possibleSvgFile.name}\" style=\"width: 100%;\"/><hr/></div>")
+            svgFiles << possibleSvgFile
+            index++
+            possibleSvgFile = new File(possibleSvgFileName(base, index))
+        }
+        svgFiles
+    }
+
+    // The embedded images in PDF files cause the resulting SVG files to be very
+    // large. We use Ghostscript to reduce the resolution (and, of course, image
+    // quality) in order to generate smaller SVG files.
+    private static String reducePdfImageResolution(String pdfFileName) {
+        log.debug("Reducing PDF resolution")
+
+        def reducedPdfFileName = pdfFileName + '-X.pdf'
+        runCommand([
+                "gs",
+                "-sDEVICE=pdfwrite",
+                "-dCompatibilityLevel=1.4",
+                "-dPDFSETTINGS=/screen", // replacing /screen with /ebook increases image quality at the cost of size
+                "-dNOPAUSE",
+                "-dQUIET",
+                "-dBATCH",
+                "-sOutputFile=${reducedPdfFileName}",
+                pdfFileName
+        ])
+        reducedPdfFileName
+    }
+
+    static runCommand(List<String> args, File workingDir = null) {
+        def process = args.execute(null as List, workingDir)
+
+        // See https://stackoverflow.com/questions/10688688/an-error-equivalent-for-process-text
+        def (output, error) = new StringWriter().with { o -> // For the output
+            new StringWriter().with { e ->                     // For the error stream
+                process.waitForProcessOutput( o, e )
+                [ o, e ]*.toString()                             // Return them both
+            }
+        }
+        if (output) {
+            log.info(output)
+        }
+        if (error) {
+            log.error(error)
+        }
+    }
+
+    private static String possibleSvgFileName(String base, int index) {
+        sprintf("%s-%03d.svg", base, index)
+    }
+
+    // An ePub file is "just" a zip archive with a specific layout.
+    // There is, however, one very specific constraint that the 'mimetype'
+    // file *must* be the first entry in the zip file.
+    // Unfortunately, we can't control the file ordering with the Ant zip
+    // task, so we have to use an external zip program (or write some more
+    // custom code which didn't seem worth the effort).
+    static createEpubFile(String epubFilename) {
+        log.info("Creating ePub archive")
+        new File(epubFilename).delete()
+        runCommand(["zip", "-r", "-X", "-q", epubFilename, "mimetype", "OEBPS", "META-INF"], new File(WORK_DIR))
+    }
+
+    // All ePub HTML files must be strictly in XHTML format.
+    // Ideally they would be named with a suffix of '.xhtml', but
+    // that would mean changing references in every piece of content.
     static void tidyHtmlFiles(List<File> fileList) {
         log.info("Converting files to XHTML format")
         fileList.grep { it.name.endsWith('.html') }. each {
@@ -92,6 +216,8 @@ class Convertor {
         }
     }
 
+    // We use HTML Tidy (https://www.html-tidy.org/) to do the
+    // in-place conversion of each HTML file to XHTML.
     static void tidyFile(File file) {
         log.debug("Tidying $file")
         runCommand(['tidy',
@@ -401,84 +527,5 @@ class Convertor {
             .replaceFirst(/<\/object>/, '</iframe>')
             .replaceAll(/<p>This browser does not support PDFs.*/, '')
             .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
-    }
-
-    static List<File> convertAllPdfFilesToSvg(List<File> fileList) {
-        fileList.collect { File file ->
-            if (file.path.endsWith('.pdf')) {
-                convertPdfToSvg(file.path)
-            } else {
-                file
-            }
-        }.flatten() as List<File>
-    }
-
-    static List<File> convertPdfToSvg(String filename) {
-        log.info("Converting '$filename' to SVG format")
-
-        log.debug("Reducing PDF resolution")
-        def tempPdfFile = filename + '-X.pdf'
-        runCommand([
-                "gs",
-                "-sDEVICE=pdfwrite",
-                "-dCompatibilityLevel=1.4",
-                "-dPDFSETTINGS=/screen", // replacing /screen with /ebook increases image quality at the cost of size
-                "-dNOPAUSE",
-                "-dQUIET",
-                "-dBATCH",
-                "-sOutputFile=${tempPdfFile}",
-                filename
-        ])
-
-        def base = filename.replaceFirst(/\.pdf$/, '')
-        runCommand(["pdf2svg", tempPdfFile, "${base}-%03d.svg", "all"])
-
-        def mainFile = new File("${base}-main.html")
-        def generatedFiles = [mainFile]
-        mainFile.withPrintWriter('UTF-8') { out ->
-            out.print """<html>
- <head>
-  <title>Converted PDF Presentation</title>
- </head>
- <body>
-"""
-            int index = 1
-            def possibleSvgFile = new File(possibleSvgFileName(base, index))
-            while (possibleSvgFile.exists()) {
-                out.println("  <div class=\"svg-slide\"><img src=\"${possibleSvgFile.name}\" style=\"width: 100%;\"/><hr/></div>")
-                generatedFiles << possibleSvgFile
-                index++
-                possibleSvgFile = new File(possibleSvgFileName(base, index))
-            }
-            out.println """ </body>
-</html>
-"""
-            log.debug("Deleting '$filename'")
-            new File(filename).delete()
-            new File(tempPdfFile).delete()
-        }
-        generatedFiles
-    }
-
-    private static String possibleSvgFileName(String base, int index) {
-        sprintf("%s-%03d.svg", base, index)
-    }
-
-    static runCommand(List<String> args, File workingDir = null) {
-        def process = args.execute(null as List, workingDir)
-
-        // See https://stackoverflow.com/questions/10688688/an-error-equivalent-for-process-text
-        def (output, error) = new StringWriter().with { o -> // For the output
-            new StringWriter().with { e ->                     // For the error stream
-                process.waitForProcessOutput( o, e )
-                [ o, e ]*.toString()                             // Return them both
-            }
-        }
-        if (output) {
-            log.info(output)
-        }
-        if (error) {
-            log.error(error)
-        }
     }
 }
