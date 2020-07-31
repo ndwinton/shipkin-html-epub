@@ -441,7 +441,7 @@ class Convertor {
                                         // The second contains a list of links to slides, labs etc.
                                         def topic = elem.div[0].text()
                                         elem.div[1].div.each { link ->
-                                            if (link.text() != '') {
+                                            if (link.text() != '' && !(link.a['@href'] =~ /^https?:/)) {
                                                 li {
                                                     a('href': 'Text/' + link.a['@href'], "${topic} [${link.text()}]")
                                                 } // </li>
