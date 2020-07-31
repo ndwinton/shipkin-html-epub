@@ -96,14 +96,13 @@ class Convertor {
         }.flatten() as List<File>
     }
 
-    // Convert an individual PDF file to SVG+HTML and return a list of
+    // Convert an individual PDF file to SVG files and return a list of
     // resulting files.
     //
     // We use pdf2svg to generate a series of SVG files, one per page, from
     // the input PDF file. The files are named in the same form as the PDF
     // file but with '.pdf' removed and '-NNN.svg' appended, where NNN is a
-    // sequential integer. A 'wrapper' HTML file is also created that loads
-    // all of the generated SVG files as images.
+    // sequential integer.
     static List<File> convertPdfToSvg(String filename) {
         log.info("Converting '$filename' to SVG format")
 
@@ -112,7 +111,7 @@ class Convertor {
         def base = filename.replaceFirst(/\.pdf$/, '')
         runCommand(["pdf2svg", reducedPdfFileName, "${base}-%03d.svg", "all"])
 
-        def generatedFiles = generateSvgWrapperHtml(base)
+        def generatedFiles = listGeneratedSvgFiles(base)
 
         log.debug("Deleting '$filename'")
         new File(filename).delete()
@@ -141,36 +140,11 @@ class Convertor {
         }
     }
 
-    // Create the 'wrapper' HTML file (with a suffix of '-main.html').
-    //
-    // Coming into this method we don't know exactly how many SVG files
-    // were generated, so it returns a list of all the newly generated
-    // files, including the wrapper file.
-    private static List<File> generateSvgWrapperHtml(base) {
-        def mainFile = new File("${base}-main.html")
-        def svgFileList = [] as List<File>
-
-        mainFile.withPrintWriter('UTF-8') { out ->
-            out.print """<html>
- <head>
-  <title>Converted PDF Presentation</title>
- </head>
- <body>
-"""
-            svgFileList = outputSvgImgReferences(base, out)
-            out.println """ </body>
-</html>
-"""
-        }
-        [mainFile] + svgFileList
-    }
-
-    private static List<File> outputSvgImgReferences(String base, PrintWriter out) {
+    static List<File> listGeneratedSvgFiles(String base) {
         def svgFiles = [] as List<File>
         int index = 1
         def possibleFile = possibleSvgFile(base, index)
         while (possibleFile.exists()) {
-            out.println("  <div class=\"svg-slide\"><img src=\"${possibleFile.name}\" style=\"width: 100%;\"/><hr/></div>")
             svgFiles << possibleFile
             index++
             possibleFile = possibleSvgFile(base, index)
@@ -429,7 +403,17 @@ class Convertor {
         // most specifically the section titles and links to content.
         // This should be very easy to derive in Shipkin
         def article = xml.'**'.find { it.name() == 'article' }
-        def nodes = article.'*'.findAll { (it.name() =='h2' && it['@id'] == '') || it['@class'] == 'index' }
+        def nodes = article.'*'.findAll { (it.name() =~ /h[123]/ && it['@id'] == '') || it['@class'] == 'index' }
+        // We need to get a list of the form [h1, ul, h2, ul, h2, ul] but in some
+        // cases there may be multiple headers before each ul and we only need the
+        // nearest one.
+        def nodePairList = nodes
+                .collect() // convert to list
+                .reverse()
+                .collate(2, 1, false) // consider successive pairs of elements, drop incomplete pairs
+                .grep { first, second -> first.name() == 'ul' && second.name() =~ /h[123]/ } // select pairs of ul with immediately preceding header
+                .flatten()
+                .reverse()
 
         def writer = new StringWriter()
         def builder = new MarkupBuilder(writer)
@@ -447,11 +431,9 @@ class Convertor {
                 nav('epub:type': 'toc') {
                     h1(mainTitle)
                     ol {
-                        nodes.collate(2).each { pair ->
-                            def header = pair[0]
-                            def list = pair[1]
+                        nodePairList.collate(2).each { header, list ->
                             li {
-                                // h2 headings get added as <span> entries
+                                // h1 or h2 headings get added as <span> entries
                                 span(header.text())
                                 ol {
                                     list.li.each { elem ->
@@ -576,12 +558,24 @@ class Convertor {
     }
 
     static String fixEmbeddedPresentation(String line) {
-        line.replaceFirst(/<object data="([^"]+).pdf" type="application\/pdf"(.*)>/, "<iframe src=\"\$1-main.html\" \$2>")
-            //Abitrarily removing or replacing <embed> and <object> tags isn't great, but probably OK in the
-            // limited context of Shipkin-generated HTML
-            .replaceFirst(/<\/?embed[^>]*>/, '')
-            .replaceFirst(/<\/object>/, '</iframe>')
-            .replaceAll(/<p>This browser does not support PDFs.*/, '')
-            .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
+        //Abitrarily removing or replacing <embed> and <object> tags isn't great, but probably OK in the
+        // limited context of Shipkin-generated HTML
+        line.replaceFirst(/<object data="([^"]+).pdf" type="application\/pdf".*>/) { all, baseName ->
+            '<div class="expanded-pdf-slides">' + inlinePdfSlidesAsSvgImages(baseName)
+        }.replaceFirst(/<\/?embed[^>]*>/, '')
+                .replaceFirst(/<\/object>/, '</div>')
+                .replaceAll(/<p>This browser does not support PDFs.*/, '')
+                .replaceAll($/<a href=".*\.pdf">view</a>/$, '')
+    }
+
+    static String inlinePdfSlidesAsSvgImages(String baseName) {
+        // This is horribly hacky and very dependent on the Shipkin output format
+        // for embedded PDF slides, the path to which is of the form '../current-dir/filename'
+        def segments = baseName.split('/')
+        def realBase = TEXT_DIR + '/' + segments[1..-1].join('/')
+        def prefix = segments[0..-2].join('/')
+        listGeneratedSvgFiles(realBase).collect {
+            "  <div class=\"svg-slide\"><img src=\"$prefix/${it.name}\" style=\"width: 100%;\"/><hr/></div>"
+        }.join("\n")
     }
 }
