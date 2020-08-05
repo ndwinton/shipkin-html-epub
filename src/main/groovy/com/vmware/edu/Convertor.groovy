@@ -497,7 +497,7 @@ class Convertor {
                         Convertor::fixIframeAttributes >>
                         Convertor::fixTopLevelIndexRef >>
                         Convertor::fixCssErrors >>
-                        Convertor::makeFooterInvisible >>
+                        // Convertor::makeFooterInvisible >> // Keeping this for VitalSource
                         Convertor::makeSidebarInvisible >>
                         Convertor::fixEmbeddedPresentation)(line)
             }
@@ -547,6 +547,36 @@ class Convertor {
     static String fixCssErrors(String line) {
         // This is really a Shipkin bug - fixed on master
         line.replaceAll(/;;/, ';')
+            .replaceFirst(/\.feedback button \{/, '''
+.feedback:link, .feedback:visited {
+    color: white;
+    text-decoration: none;
+}
+
+.feedback:hover {
+    background-color: #3D4A51;
+    text-decoration: none;
+}
+
+.feedback:active {
+    text-decoration: none;
+}
+
+.feedback {
+    color: white;
+    background-color: #607580;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: .9rem;
+
+    border: none;
+    padding: .75rem 1.25rem;
+
+    cursor: pointer;
+
+    border-top-left-radius: .2rem;
+    border-top-right-radius: .2rem;
+''')
     }
 
     static String makeFooterInvisible(String line) {
