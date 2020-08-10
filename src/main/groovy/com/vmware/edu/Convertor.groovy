@@ -251,7 +251,7 @@ class Convertor {
         }
     }
 
-    static void generateOpfFile(String title, String uuid, Map idMapping, List indexLinks, List remoteLinks) {
+    static void generateOpfFile(String title, String uuid, Map<String,String> idMapping, List indexLinks, List remoteLinks) {
         log.info("Generating OPF file")
         new File(OEBPS_DIR, 'content.opf').withPrintWriter('UTF-8') { opf ->
             opf.print """<?xml version="1.0" encoding="UTF-8"?>
@@ -297,7 +297,7 @@ class Convertor {
                 opf.println """   <itemref idref="$link" linear="yes"/>"""
             }
             idMapping.each { id, name ->
-                if (name =~ /(\.html|\.zip)/ && !indexLinks.contains(id)) {
+                if (name.endsWith('.html') && !indexLinks.contains(id)) {
                     opf.println """   <itemref idref="$id" linear="no"/>"""
                 }
             }
@@ -534,7 +534,7 @@ class Convertor {
 
     static String fixIframeAttributes(String line) {
         line.replaceAll('frameborder="0"', '')
-                .replaceAll(/width="100%"\s+height="569"/, 'style="width: 100%;" height="600"') // Not ideal, but seems to work
+                .replaceAll(/width="100%"\s+height="569"/, 'style="width: 100%; height: 60vh; border: 0"')
                 .replaceAll('mozallowfullscreen="true"', '')
                 .replaceAll('webkitallowfullscreen="true"', '')
                 .replaceAll('allowfullscreen="true"', 'allowfullscreen="allowfullscreen"')
