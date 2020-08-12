@@ -51,9 +51,10 @@ class Convertor {
         def remoteLinks = extractRemoteResourceLinks(fileList)
         def indexLinks = readIndexLinks()
         def uuid =  UUID.randomUUID().toString()
+        def courseVersion = readCourseVersion()
 
-        generateOpfFile(title, uuid, idMappings, indexLinks, remoteLinks)
-        makeTocAndOtherSupportFiles(title, uuid)
+        generateOpfFile(title, uuid, idMappings, indexLinks, remoteLinks, courseVersion)
+        makeTocAndOtherSupportFiles(title, courseVersion)
         makeMetaInf()
         makeMimeType()
         createEpubFile(epubFile)
@@ -242,6 +243,15 @@ class Convertor {
         indexLinks
     }
 
+    // Read the course version from the meta-data added by Shipkin
+    static String readCourseVersion() {
+        log.info("Reading course version")
+        def slurper = new XmlSlurper()
+        slurper.setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
+        def xhtml = slurper.parse(new File(TEXT_DIR + '/index.html'))
+        xhtml.head.meta.find { it['@name'] == 'course version' }['@content'].text()
+    }
+
     static Map<String, String> generateIdMappings(List<File> fileList) {
         fileList.collectEntries {
             def embeddedPath = it.path - (OEBPS_DIR + '/')
@@ -251,7 +261,7 @@ class Convertor {
         }
     }
 
-    static void generateOpfFile(String title, String uuid, Map<String,String> idMapping, List indexLinks, List remoteLinks) {
+    static void generateOpfFile(String title, String uuid, Map<String,String> idMapping, List indexLinks, List remoteLinks, String courseVersion) {
         log.info("Generating OPF file")
         new File(OEBPS_DIR, 'content.opf').withPrintWriter('UTF-8') { opf ->
             opf.print """<?xml version="1.0" encoding="UTF-8"?>
@@ -262,7 +272,7 @@ class Convertor {
    <dc:language>en</dc:language>
    <dc:publisher>VMware</dc:publisher>
    <dc:creator>VMware</dc:creator>
-   <dc:subject>$title</dc:subject>
+   <dc:subject>$title, course version $courseVersion</dc:subject>
    <dc:rights>© ${new Date().format('yyyy')} VMware Inc.</dc:rights>
    <dc:date>${new Date().format('yyyy-MM-dd')}</dc:date>
    <meta property="dcterms:modified">${new Date().format("yyyy-MM-dd'T'hh:mm:ss'Z'")}</meta>
@@ -270,6 +280,7 @@ class Convertor {
   <manifest>
    <item href="nav.xhtml" id="nav" media-type="application/xhtml+xml" properties="nav"/>
    <item id="unsupported" href="unsupported.xhtml" media-type="application/xhtml+xml"/>
+   <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
 """
             idMapping.each { id, name ->
                 def contentType = determineContentType(name)
@@ -329,7 +340,7 @@ class Convertor {
     static String generatePropertiesForContent(String fileName) {
         def properties = []
         def text = new File(OEBPS_DIR + '/' + fileName).text
-        if (text.contains('src="http') || text.contains('url(http')) {
+        if (text.contains('src="http') || text.contains('url(http') || text.contains("url('http")) {
             properties << 'remote-resources'
         }
         if (fileName.endsWith('.html')) {
@@ -357,27 +368,10 @@ class Convertor {
         contentType
     }
 
-    static void makeTocAndOtherSupportFiles(String title, String uuid) {
+    static void makeTocAndOtherSupportFiles(String title, String courseVersion) {
         log.info("Generating TOC")
 
-        new File(OEBPS_DIR, "nav.xhtml") << buildNavXhtml(title)
-                """<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-    <head>
-        <meta charset="UTF-8" />
-        <title>$title</title>
-    </head>
-    <body>
-        <nav epub:type="toc">
-            <h1>$title</h1>
-            <ol>
-                <li><a href="Text/index.html">Main Index</a></li>
-            </ol>
-        </nav>
-    </body>
-</html>
-"""
-
+        new File(OEBPS_DIR, "nav.xhtml") << buildNavXhtml(title, courseVersion)
         new File(OEBPS_DIR, "unsupported.xhtml") << """<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
     <head>
@@ -390,14 +384,15 @@ class Convertor {
     </body>
 </html>
 """
+        CoverImageGenerator.makeCover(title, courseVersion, OEBPS_DIR + '/cover.png')
     }
 
     // Read the top-level index and build a reasonable navigation file
-    static String buildNavXhtml(String mainTitle) {
+    static String buildNavXhtml(String mainTitle, String courseVersion) {
         def slurper = new XmlSlurper()
         slurper.setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
 
-        def xml = slurper.parse(new File('build/epub/OEBPS/Text/index.html'))
+        def xml = slurper.parse(new File(TEXT_DIR + '/index.html'))
 
         // Heuristically, this is where the most important details can be found,
         // most specifically the section titles and links to content.
@@ -425,11 +420,11 @@ class Convertor {
         builder.html('xmlns': 'http://www.w3.org/1999/xhtml', 'xmlns:epub': 'http://www.idpf.org/2007/ops') {
             head {
                 meta('charset': 'UTF-8')
-                title(mainTitle)
+                title("$mainTitle - $courseVersion")
             }
             body {
                 nav('epub:type': 'toc') {
-                    h1(mainTitle)
+                    h1("$mainTitle (course version $courseVersion)")
                     ol {
                         nodePairList.collate(2).each { header, list ->
                             li {
@@ -478,7 +473,7 @@ class Convertor {
         def remoteLinks = []
         fileList.grep { it.name.endsWith('.css') || it.name.endsWith('.html') }.each { file ->
             def lines = file.readLines()
-            remoteLinks << lines.grep { it.matches(/.*src:.*url\(\s*http.*/) }.collect { it.replaceAll(/.*url\(\s*([^\)\s]+).*/, '$1') }
+            remoteLinks << lines.grep { it.matches(/(.*src:|@import).*url\(\s*'?http.*/) }.collect { it.replaceAll(/.*url\(\s*'?([^'\)\s]+).*/, '$1') }
         }
         remoteLinks.flatten().toUnique()
     }
@@ -497,7 +492,7 @@ class Convertor {
                         Convertor::fixIframeAttributes >>
                         Convertor::fixTopLevelIndexRef >>
                         Convertor::fixCssErrors >>
-                        // Convertor::makeFooterInvisible >> // Keeping this for VitalSource
+                        Convertor::makeFooterInvisible >>
                         Convertor::makeSidebarInvisible >>
                         Convertor::fixEmbeddedPresentation)(line)
             }
