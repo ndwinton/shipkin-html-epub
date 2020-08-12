@@ -10,6 +10,7 @@ import org.springframework.boot.SpringApplication
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.context.annotation.Bean
 
+import java.awt.Color
 import java.nio.file.Files
 
 @Slf4j
@@ -30,13 +31,16 @@ class Convertor {
     }
 
     static def execute(String[] args) {
-        if (args.size() != 2) {
-            log.error("Usage: ${Convertor.name} shipkin-zip-file epub-title")
+        if (args.size() < 2) {
+            log.error("Usage: ${Convertor.name} shipkin-zip-file epub-title [cover-bg-colour [cover-fg-color]]")
             System.exit(1)
         }
 
         def zipFile = args[0]
         def title = args[1]
+        def coverBackground = args.size() >= 3 ? args[2] : '14428a'    // VMware dark blue
+        def coverForeground = args.size() >= 4 ? args[3] : 'ffffff'    // White
+
         def epubFile = zipFile.replaceFirst(/\.zip$/, '.epub').replaceFirst(/^.*\//, '')
 
         log.info "Generating ePub '$WORK_DIR/$epubFile' for '$title' from '$zipFile'"
@@ -55,6 +59,7 @@ class Convertor {
 
         generateOpfFile(title, uuid, idMappings, indexLinks, remoteLinks, courseVersion)
         makeTocAndOtherSupportFiles(title, courseVersion)
+        makeCoverImage(title, courseVersion, coverForeground, coverBackground)
         makeMetaInf()
         makeMimeType()
         createEpubFile(epubFile)
@@ -384,7 +389,6 @@ class Convertor {
     </body>
 </html>
 """
-        CoverImageGenerator.makeCover(title, courseVersion, OEBPS_DIR + '/cover.png')
     }
 
     // Read the top-level index and build a reasonable navigation file
@@ -453,6 +457,9 @@ class Convertor {
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + writer.toString()
     }
 
+    static void makeCoverImage(String title, String courseVersion, String foreground, String background) {
+        CoverImageGenerator.makeCover(title, courseVersion, OEBPS_DIR + '/cover.png', foreground, background)
+    }
     static void makeMetaInf() {
         log.info("Generating META-INF")
         new File(META_INF_DIR).mkdirs()

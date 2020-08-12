@@ -13,9 +13,9 @@ import javax.imageio.ImageIO
 @CompileStatic
 class CoverImageGenerator {
 
-    static int PADDING = 20
+    final static int PADDING = 20
 
-    static void makeCover(String title, String version, String outputFile) {
+    static void makeCover(String title, String version, String outputFile, String foreground, String background) {
 
         def titleFont = new Font("Arial", Font.BOLD, 48)
         def subFont = new Font("Arial", Font.PLAIN, 36)
@@ -35,9 +35,9 @@ class CoverImageGenerator {
             setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
 
             font = titleFont
-            color = new Color(0x14, 0x42, 0x8a)
+            color = new Color(parseHexString(background))
             fillRect(0, 0, img.width, img.height)
-            color = Color.WHITE
+            color = new Color(parseHexString(foreground))
             lines.eachWithIndex { line, index ->
                 drawString(line, PADDING, (fontMetrics.height * (index + 1)) + PADDING)
                 font = subFont
@@ -55,7 +55,7 @@ class CoverImageGenerator {
     // We adjust the image size to a ratio of 4:3 (height:width) unless
     // it's already taller than that.
 
-    static Map<String,Integer> calculateTextImageSize(List<String> lines, Font textFont) {
+    private static Map<String,Integer> calculateTextImageSize(List<String> lines, Font textFont) {
         def img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
         Map<String,Integer> result = [:]
         img.createGraphics().with {
@@ -67,4 +67,7 @@ class CoverImageGenerator {
         result
     }
 
+    private static int parseHexString(String hexString) {
+        Integer.parseInt(hexString.replaceAll(/[^0-9a-fA-F]/, ''), 16)
+    }
 }
